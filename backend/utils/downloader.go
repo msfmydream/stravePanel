@@ -51,12 +51,14 @@ func (pThis *Download) mutiDownLoad(url, storepath, filename string, contentLeng
 
 	//计算每一分片的大小
 	partSize := contentLength / pThis.SliceNum
-
-	// 创建部分文件的存放目录
 	filepath := path.Join(storepath, filename)
-	partDir := pThis.getPartDir(filepath)
-	os.Mkdir(partDir, 0777)
-	defer os.RemoveAll(partDir)
+	//判断目录是否已经存在，如不存在则创建
+	if _, err := os.Stat(storepath); os.IsNotExist(err) {
+		log.Info().Msg("[download] : Path is Not Exist, Create is. ")
+		// 创建部分文件的存放目录
+		partDir := pThis.getPartDir(filepath)
+		os.Mkdir(partDir, 0777)
+	}
 
 	var wg sync.WaitGroup
 	wg.Add(pThis.SliceNum)
@@ -89,12 +91,17 @@ func (pThis *Download) mutiDownLoad(url, storepath, filename string, contentLeng
 	return nil
 }
 
-func (pThis *Download) singalDownLoad(strURL, storePath, filename string) error {
+func (pThis *Download) singalDownLoad(strURL, storepath, filename string) error {
 
-	os.Mkdir(storePath, 0777)
-	defer os.RemoveAll(storePath)
+	filepath := path.Join(storepath, filename)
+	//判断目录是否已经存在，如不存在则创建
+	if _, err := os.Stat(storepath); os.IsNotExist(err) {
+		log.Info().Msg("[download] : Path is Not Exist, Create is. ")
+		// 创建部分文件的存放目录
+		partDir := pThis.getPartDir(filepath)
+		os.Mkdir(partDir, 0777)
+	}
 
-	filepath := path.Join(storePath, filename)
 	req, err := http.NewRequest("GET", strURL, nil)
 	if err != nil {
 		log.Error().Msgf("[download] : Create Request Failed:" + err.Error())
@@ -121,15 +128,15 @@ func (pThis *Download) singalDownLoad(strURL, storePath, filename string) error 
 	return nil
 }
 
-func (pThis *Download) merge(storePath string) error {
-	destFile, err := os.OpenFile(storePath, os.O_CREATE|os.O_WRONLY, 0666)
+func (pThis *Download) merge(storepath string) error {
+	destFile, err := os.OpenFile(storepath, os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
 		return err
 	}
 	defer destFile.Close()
 
 	for i := 0; i < pThis.SliceNum; i++ {
-		partFileName := pThis.getPartFilename(storePath, i)
+		partFileName := pThis.getPartFilename(storepath, i)
 		partFile, err := os.Open(partFileName)
 		if err != nil {
 			return err
