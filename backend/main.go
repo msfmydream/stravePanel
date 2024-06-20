@@ -1,6 +1,7 @@
 package main
 
 import (
+	"stravePanel/backend/configs"
 	"stravePanel/backend/utils"
 )
 
@@ -10,7 +11,9 @@ func main() {
 	storepath := "/env/dev/code/go/stravePanel/download"
 	filename := "steamcmd_linux.tar.gz"
 	sliceNum := 3
+	resume := true
+	configs.LogInit()
 
-	utils.NewDownloader(sliceNum).Download(strURL, storepath, filename)
+	utils.NewDownloader(sliceNum, resume).Download(strURL, storepath, filename)
 
 }

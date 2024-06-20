@@ -9,7 +9,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func tarGzUnzip(zipFile, dest string) error {
+func TarGzUnzip(zipFile, dest string) error {
 	fr, err := os.Open(zipFile)
 	if err != nil {
 		log.Error().Msg("open zipfile faild, can't find file:" + zipFile)

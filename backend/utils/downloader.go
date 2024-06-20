@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -19,10 +20,12 @@ type Download struct {
 	SliceNum           int
 	CurrentSliceNum    int
 	CurrentSliceLength int
+
+	resume bool
 }
 
-func NewDownloader(sliceNum int) *Download {
-	return &Download{SliceNum: sliceNum}
+func NewDownloader(sliceNum int, resume bool) *Download {
+	return &Download{SliceNum: sliceNum, resume: resume}
 }
 
 func (pThis *Download) Download(url, storepath, filename string) error {
@@ -36,7 +39,8 @@ func (pThis *Download) Download(url, storepath, filename string) error {
 
 	if resp.StatusCode == http.StatusOK && resp.Header.Get("Accept-Ranges") == "bytes" {
 		//分片下载
-		return pThis.mutiDownLoad(url, storepath, filename, int(resp.ContentLength))
+		// return pThis.mutiDownLoad(url, storepath, filename, int(resp.ContentLength))
+		return pThis.singalDownLoad(url, storepath, filename)
 	} else if resp.StatusCode == http.StatusOK {
 		//单独下载
 		return pThis.singalDownLoad(url, storepath, filename)
@@ -47,16 +51,16 @@ func (pThis *Download) Download(url, storepath, filename string) error {
 
 }
 
-func (pThis *Download) mutiDownLoad(url, storepath, filename string, contentLength int) error {
+func (pThis *Download) mutiDownLoad(url, storePath, filename string, contentLength int) error {
 
 	//计算每一分片的大小
 	partSize := contentLength / pThis.SliceNum
-	filepath := path.Join(storepath, filename)
+	filepath := path.Join(storePath, filename)
 	//判断目录是否已经存在，如不存在则创建
-	if _, err := os.Stat(storepath); os.IsNotExist(err) {
+	if _, err := os.Stat(storePath); os.IsNotExist(err) {
 		log.Info().Msg("[download] : Path is Not Exist, Create is. ")
 		// 创建部分文件的存放目录
-		partDir := pThis.getPartDir(filepath)
+		partDir := storePath
 		os.Mkdir(partDir, 0777)
 	}
 
@@ -64,15 +68,15 @@ func (pThis *Download) mutiDownLoad(url, storepath, filename string, contentLeng
 	wg.Add(pThis.SliceNum)
 
 	rangeStart := 0
-
-	for i := 0; i < pThis.SliceNum; i++ {
+	sliceNum := pThis.SliceNum
+	for i := 0; i < sliceNum; i++ {
 		// 并发请求
 		go func(i, rangeStart int) {
 			defer wg.Done()
 
 			rangeEnd := rangeStart + partSize
 			// 最后一部分，总长度不能超过 ContentLength
-			if i == pThis.SliceNum-1 {
+			if i == sliceNum-1 {
 				rangeEnd = pThis.ContentLength
 			}
 
@@ -86,16 +90,16 @@ func (pThis *Download) mutiDownLoad(url, storepath, filename string, contentLeng
 	wg.Wait()
 
 	// 合并文件
-	pThis.merge(storepath)
+	pThis.merge(filepath)
 
 	return nil
 }
 
-func (pThis *Download) singalDownLoad(strURL, storepath, filename string) error {
+func (pThis *Download) singalDownLoad(strURL, storePath, filename string) error {
 
-	filepath := path.Join(storepath, filename)
+	filepath := path.Join(storePath, filename)
 	//判断目录是否已经存在，如不存在则创建
-	if _, err := os.Stat(storepath); os.IsNotExist(err) {
+	if _, err := os.Stat(storePath); os.IsNotExist(err) {
 		log.Info().Msg("[download] : Path is Not Exist, Create is. ")
 		// 创建部分文件的存放目录
 		partDir := pThis.getPartDir(filepath)
@@ -128,17 +132,19 @@ func (pThis *Download) singalDownLoad(strURL, storepath, filename string) error 
 	return nil
 }
 
-func (pThis *Download) merge(storepath string) error {
-	destFile, err := os.OpenFile(storepath, os.O_CREATE|os.O_WRONLY, 0666)
+func (pThis *Download) merge(filePath string) error {
+	destFile, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
+		log.Error().Msg("[download] : Merge File Faild.")
 		return err
 	}
 	defer destFile.Close()
 
 	for i := 0; i < pThis.SliceNum; i++ {
-		partFileName := pThis.getPartFilename(storepath, i)
+		partFileName := pThis.getPartFilePath(filePath, i)
 		partFile, err := os.Open(partFileName)
 		if err != nil {
+			log.Error().Msg("[download] : Merge Error, Can't Find File:" + partFileName)
 			return err
 		}
 		io.Copy(destFile, partFile)
@@ -161,13 +167,13 @@ func (pThis *Download) downloadPartial(strURL, filepath string, byteStart, byteE
 
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", byteStart, byteEnd))
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil || resp.StatusCode != 200 {
+	if err != nil {
 		log.Error().Msgf("[download] : Could'd not Send Requset or Server UnAvailable:" + err.Error())
 	}
 	defer resp.Body.Close()
 
 	flags := os.O_CREATE | os.O_WRONLY
-	partFile, err := os.OpenFile(pThis.getPartFilename(filepath, i), flags, 0666)
+	partFile, err := os.OpenFile(pThis.getPartFilePath(filepath, i), flags, 0666)
 	if err != nil {
 		log.Error().Msgf("[download] : FilePath not find:" + err.Error())
 	}
@@ -180,16 +186,31 @@ func (pThis *Download) downloadPartial(strURL, filepath string, byteStart, byteE
 			return
 		}
 	}
-	log.Info().Msg("download with singalDownload Success. Save as: " + filepath)
+	log.Info().Msg("[download] : with PartialDownload Success. Save as: " + filepath + "-" + strconv.Itoa(i))
 }
 
-// getPartFilename 构造部分文件的名字
-func (pThis *Download) getPartFilename(filepath string, partNum int) string {
-	partDir := pThis.getPartDir(filepath)
-	return fmt.Sprintf("%s/%s-%d", partDir, filepath, partNum)
+// getPartFilePath 构造部分文件的路径 / 文件名 / 文件部分编号
+func (pThis *Download) getPartFilePath(filepath string, partNum int) string {
+	// filename := pThis.getfileNamePart(filepath)
+	return fmt.Sprintf("%s-%d", filepath, partNum)
 }
 
-// getPartDir 部分文件存放的目录
+// getfileNamePart 获取文件名
+func (pThis *Download) getfileNamePart(filepath string) string {
+	// 找到最后一个斜杠的位置
+	lastSlashIndex := strings.LastIndex(filepath, "/")
+
+	// 如果没有找到斜杠，返回空字符串
+	if lastSlashIndex == -1 {
+		return ""
+	}
+
+	// 截取从开始到斜杠之前的部分作为目录路径
+	dirPath := filepath[lastSlashIndex+1:]
+
+	return dirPath
+}
+
 func (pThis *Download) getPartDir(filepath string) string {
 	// 找到最后一个斜杠的位置
 	lastSlashIndex := strings.LastIndex(filepath, "/")

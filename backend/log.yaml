@@ -1,0 +1,13 @@
+# 日志配置
+ZeroLogConfig:
+  Level: debug
+  # development or production
+  Pattern: development
+  OutPut: log
+# 日志轮换(分割配置)
+LogRotate:
+  Filename: service.log
+  MaxSize: 1
+  MaxBackups: 3
+  MaxAge: 7
+  Compress: true

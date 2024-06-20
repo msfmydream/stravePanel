@@ -14,7 +14,7 @@ import (
 
 func CreateConfig(file string) *viper.Viper {
 	config := viper.New()
-	configPath := "config/"
+	configPath := "/env/dev/code/go/stravePanel/backend/"
 	config.AddConfigPath(configPath) // 文件所在目录
 	config.SetConfigName(file)       // 文件名
 	config.SetConfigType("yaml")     // 文件类型
